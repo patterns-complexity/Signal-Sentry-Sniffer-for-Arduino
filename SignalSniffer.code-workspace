@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"name": "SignalSniffer",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"*.tcc": "cpp",
+			"algorithm": "cpp"
+		}
+	}
+}

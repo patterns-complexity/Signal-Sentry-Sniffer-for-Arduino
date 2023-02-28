@@ -1,0 +1,15 @@
+#ifndef SETTINGS_HPP
+#define SETTINGS_HPP
+
+#include <Arduino.h>
+
+#define PIN_SIGNAL_OUTPUT D0
+#define PIN_SIGNAL_INPUT D1
+#define PIN_LED D2
+#define PIN_BUTTON_1 D3
+#define PIN_BUTTON_2 D4
+#define MAX_SIGNAL_LENGTH 64
+#define DEBUG_MODE true
+#define COMMS_ENABLED true
+
+#endif
