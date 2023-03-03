@@ -26,12 +26,25 @@ uint32_t SignalBuffer::getTimestamp(uint32_t index) {
   return this->timestamps[index];
 }
 
-Buffer SignalBuffer::getBuffer() {
+Buffer &SignalBuffer::getBuffer() {
   return this->buffer;
 }
 
-Timestamps SignalBuffer::getTimestamps() {
+Timestamps &SignalBuffer::getTimestamps() {
   return this->timestamps;
+}
+
+Timestamps &SignalBuffer::getRelativeTimestamps() {
+  this->relative_timestamps.clear();
+  Timestamps &timestamps = this->getTimestamps();
+  for (int i = 0; i < timestamps.size(); i++) {
+    if (i == 0) {
+      this->relative_timestamps.push_back(0);
+      continue;
+    }
+    this->relative_timestamps.push_back(timestamps[i] - timestamps[i - 1]);
+  }
+  return this->relative_timestamps;
 }
 
 int SignalBuffer::size() {

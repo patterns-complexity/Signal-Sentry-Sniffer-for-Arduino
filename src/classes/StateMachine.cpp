@@ -1,12 +1,6 @@
 #include "classes/StateMachine.h"
 
-StateMachine::StateMachine() {
-  this->states[0] = IDLE;
-  this->states[1] = RECORDING;
-  this->states[2] = SAVING;
-  this->states[3] = REPLAYING;
-  this->current_state = IDLE;
-}
+StateMachine::StateMachine() {};
 
 volatile State StateMachine::getCurrentState() {
   return this->current_state;
