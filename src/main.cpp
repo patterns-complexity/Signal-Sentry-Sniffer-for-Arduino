@@ -1,32 +1,48 @@
 #include <memory>
 #include "init.h"
 
-
 SignalBuffer signal_buffer = SignalBuffer(MAX_SIGNAL_LENGTH);
 StateMachine state_machine = StateMachine();
 SignalMemoryController smc = SignalMemoryController();
 
-int signal_memory_index = 0;
+volatile State last_state;
 
 void onSignalBitReceivedInterrupt() {
   if (state_machine.getCurrentState() != RECORDING) {
     return;
   }
 
-  bool signal = digitalRead(PIN_SIGNAL_INPUT);
+  const bool signal = digitalRead(PIN_SIGNAL_INPUT);
+
   signal_buffer.addBit(signal);
   signal_buffer.addTimestamp(micros());
 
   sendDebugMessage("Received signal bit: " + String(signal));
 }
 
-void onButton1Pressed() {
-  State current_state = state_machine.getCurrentState();
-  volatile bool pin_state = digitalRead(PIN_BUTTON_1);
+void onButton1HeldFor5Seconds() {
+  state_machine.changeState(IDLE);
+  sendDebugMessage("Clearing EEPROM...");
+  const SignalMemoryError sme = smc.clearMemory();
+  if (sme != NO_ERROR) {
+    sendDebugMessage("Error clearing EEPROM: " + String(sme));
+    return;
+  }
+  sendDebugMessage("EEPROM cleared!");
+}
 
-  Serial.println("Button 1 pressed");
+void onButton1Pressed() {
+  static unsigned long last_button_press = 0;
+
+  const State current_state = state_machine.getCurrentState();
+  const bool pin_state = digitalRead(PIN_BUTTON_1);
 
   if (pin_state == HIGH) {
+    if (millis() - last_button_press > 5000) {
+      onButton1HeldFor5Seconds();
+    }
+    return;
+  } else if (millis() - last_button_press < 1000) {
     return;
   }
 
@@ -47,15 +63,18 @@ void onButton1Pressed() {
       sendDebugMessage("Nothing to do here");
       break;
   }
+
+  last_button_press = millis();
 }
 
 void onButton2Pressed() {
-  State current_state = state_machine.getCurrentState();
-  volatile bool pin_state = digitalRead(PIN_BUTTON_2);
+  static unsigned long last_button_press = 0;
 
-  Serial.println("Button 2 pressed");
+  const State current_state = state_machine.getCurrentState();
+  const bool pin_state = digitalRead(PIN_BUTTON_2);
 
-  if (pin_state == HIGH) {
+  if (pin_state == HIGH || millis() - last_button_press < 1000) {
+    last_button_press = millis();
     return;
   }
 
@@ -72,57 +91,85 @@ void onButton2Pressed() {
       sendDebugMessage("Nothing to do here");
       break;
   }
+
+  last_button_press = millis();
 }
 
 void saveSignal() {
   sendDebugMessage("Saving signal to memory");
-  Buffer buffer = signal_buffer.getBuffer();
-  Timestamps timestamps = signal_buffer.getTimestamps();
+  Buffer &buffer = signal_buffer.getBuffer();
+  Timestamps &timestamps = signal_buffer.getTimestamps();
   sendDebugMessage("Signal buffer size: " + String(buffer.size()));
-  smc.writeSignal(buffer, timestamps);
+  const SignalMemoryError sme = smc.writeSignal(buffer, timestamps);
+  if (sme != NO_ERROR) {
+    sendDebugMessage("Error writing signal to memory: " + String(sme));
+    return;
+  }
+  sendDebugMessage("Signal saved!");
 }
 
 void loadSignal() {
-  signal_buffer = smc.readSignal();
+  Buffer &buffer = signal_buffer.getBuffer();
+  Timestamps &timestamps = signal_buffer.getTimestamps();
+  buffer.clear();
+  timestamps.clear();
+  const SignalMemoryError sme = smc.readSignal(buffer, timestamps);
+  if (sme != NO_ERROR) {
+    sendDebugMessage("Error reading signal from memory: " + String(sme));
+    return;
+  }
+  sendDebugMessage("Signal loaded!");
 }
 
 void sendSignal() {
+  sendDebugMessage("Loading signal from memory...");
+
   loadSignal();
 
-  Timestamps temp_timestamps = Timestamps();
-  Buffer temp_buffer = Buffer();
+  sendDebugMessage("Preparing signal...");
 
-  const unsigned long first_timestamp = signal_buffer.getTimestamps()[0];
+  sendDebugMessage("\n");
 
-  String messages[signal_buffer.size()];
+  Buffer &buffer = signal_buffer.getBuffer();
+  Timestamps &timestamps = signal_buffer.getTimestamps();
+  Timestamps &relative_timestamps = signal_buffer.getRelativeTimestamps();
 
-  for (int i = 0; i < signal_buffer.size(); i++) {
-    bool signal = signal_buffer.getBit(i);
-    unsigned long previous_timestamp = i == 0 ? first_timestamp : signal_buffer.getTimestamp(i - 1);
-    unsigned long timestamp = signal_buffer.getTimestamp(i);
-    unsigned long bit_length = timestamp - previous_timestamp;
+  const size_t buffer_size = buffer.size();
+  const size_t timestamps_size = timestamps.size();
+  const size_t relative_timestamps_size = relative_timestamps.size();
 
-    temp_buffer.push_back(signal);
-    temp_timestamps.push_back(bit_length);
-    messages[i] = String(i) + " | " + "Signal bit: " + String(signal) + " with length: " + String(bit_length);
+  sendDebugMessage("Signal buffer size: " + String(buffer_size));
+  sendDebugMessage("Absolute timestamps size: " + String(timestamps_size));
+  sendDebugMessage("Relative timestamps size: " + String(relative_timestamps_size));
+
+  sendDebugMessage("\n");
+
+  sendDebugMessage("Preparation complete! Sending the signal... Size: " + String(buffer_size));
+  for (int i = 0; i < buffer_size; i++) {
+    wait(relative_timestamps[i], true);
+    digitalWrite(PIN_SIGNAL_OUTPUT, buffer[i]);
+    sendDebugMessage("Sent bit: "
+      + String(i)
+      + " | Relative delay: "
+      + String(relative_timestamps[i])
+      + " | "
+      + String(timestamps[i])
+    );
   }
 
-  for (int i = 0; i < temp_buffer.size(); i++) {
-    bool signal = temp_buffer[i];
-    unsigned long bit_length = temp_timestamps[i];
-
-    wait(bit_length, true);
-    digitalWrite(PIN_SIGNAL_OUTPUT, signal);
-
-    sendDebugMessage(messages[i]);
-  }
+  sendDebugMessage("Signal replay complete! Switching state to IDLE...");
 
   state_machine.changeState(IDLE);
+
+  sendDebugMessage("Done!");
 }
 
 void setup() {
   // Init serial
   Serial.begin(115200);
+
+  // Init EEPROM
+  EEPROM.begin(EEPROM_INITIALIZED_SIZE);
 
   // Set outputs
   pinMode(PIN_LED, OUTPUT);
@@ -146,14 +193,20 @@ void setup() {
 
   // Init state machine
   state_machine.changeState(IDLE);
+  last_state = IDLE;
 
   sendDebugMessage("Setup complete");
 }
 
 void loop() {
-  State current_state = state_machine.getCurrentState();
+  const State current_state = state_machine.getCurrentState();
+
   digitalWrite(PIN_BUTTON_1, HIGH);
   digitalWrite(PIN_BUTTON_2, HIGH);
+
+  if (last_state == current_state) {
+    return;
+  }
 
   switch (current_state) {
     case IDLE:
@@ -172,12 +225,16 @@ void loop() {
       break;
     case REPLAYING:
       digitalWrite(PIN_LED, HIGH);
-      digitalWrite(PIN_SIGNAL_OUTPUT, HIGH);
+      digitalWrite(PIN_SIGNAL_OUTPUT, LOW);
+      sendDebugMessage("Replaying signal");
       sendSignal();
+      sendDebugMessage("Replaying signal complete");
       state_machine.changeState(IDLE);
       break;
     default:
       sendDebugMessage("Nothing to do here");
       break;
   }
+
+  last_state = current_state;
 }

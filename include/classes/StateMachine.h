@@ -20,6 +20,6 @@ class StateMachine {
   private:
     volatile State current_state;
     volatile State previous_state;
-    volatile uint32_t state_change_counter = 0;
+    volatile size_t state_change_counter = 0;
     State states[4];
 };

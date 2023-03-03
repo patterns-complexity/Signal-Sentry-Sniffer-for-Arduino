@@ -9,6 +9,7 @@ class SignalBuffer {
   private:
     Buffer buffer;
     Timestamps timestamps;
+    Timestamps relative_timestamps;
     int buffer_size;
 
   public:
@@ -17,7 +18,8 @@ class SignalBuffer {
     bool getBit(int index);
     void addTimestamp(uint32_t timestamp);
     uint32_t getTimestamp(uint32_t index);
-    Buffer getBuffer();
-    Timestamps getTimestamps();
+    Buffer &getBuffer();
+    Timestamps &getTimestamps();
+    Timestamps &getRelativeTimestamps();
     int size();
 };
